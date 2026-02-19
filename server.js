@@ -20,14 +20,18 @@ const helmet    = require('helmet');
 
 const app = express();
 
+// ✅ FIX: trust proxy عشان Railway وأي reverse proxy
+app.set('trust proxy', 1);
+
 app.use(helmet({
   contentSecurityPolicy    : false,
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   crossOriginEmbedderPolicy: false,
 }));
 
+// ✅ FIX: CORS يقبل كل الـ origins أو الـ ALLOWED_ORIGIN من الـ env
 app.use(cors({
-  origin        : process.env.NODE_ENV === 'production' ? process.env.ALLOWED_ORIGIN : true,
+  origin        : process.env.ALLOWED_ORIGIN || true,
   methods       : ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
@@ -162,7 +166,6 @@ const upload = multer({
   fileFilter: (_req, file, cb) => {
     const allowed = /jpeg|jpg|png|gif|webp/;
     const extOk   = allowed.test(path.extname(file.originalname).toLowerCase());
-    // ✅ FIX #2: mime type check أدق
     const mimeOk  = /image\/(jpeg|png|gif|webp)/.test(file.mimetype);
     if (extOk && mimeOk) return cb(null, true);
     cb(new Error('Only image files (jpeg, jpg, png, gif, webp) are allowed'));
@@ -198,7 +201,6 @@ function requireSuperAdmin(req, res, next) {
   next();
 }
 
-// ✅ FIX #3: middleware مستقل للـ customer
 function requireCustomer(req, res, next) {
   if (req.user.type !== 'customer') return res.status(403).json({ error: 'Customer access required.' });
   next();
@@ -219,7 +221,6 @@ app.post('/api/customers/register', registerLimiter, async (req, res) => {
     if (!username || !email || !password) {
       return res.status(400).json({ error: 'username, email and password are required' });
     }
-    // ✅ FIX #4: username validation
     if (username.trim().length < 2) {
       return res.status(400).json({ error: 'Username must be at least 2 characters' });
     }
@@ -236,7 +237,6 @@ app.post('/api/customers/register', registerLimiter, async (req, res) => {
     const hash     = await bcrypt.hash(password, 12);
     const customer = await Customer.create({ username: username.trim(), email: email.toLowerCase(), password: hash, phone });
 
-    // ✅ FIX #5: رجّع token + بيانات الـ customer بعد التسجيل مباشرة (auto-login)
     const token = generateToken({ id: customer._id, type: 'customer' });
     res.status(201).json({
       token,
@@ -244,7 +244,6 @@ app.post('/api/customers/register', registerLimiter, async (req, res) => {
     });
   } catch (err) {
     console.error('Customer register error:', err);
-    // ✅ FIX #6: explicit duplicate key error
     if (err.code === 11000) return res.status(400).json({ error: 'Email already in use' });
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -255,7 +254,6 @@ app.post('/api/customers/login', authLimiter, async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
 
-    // ✅ FIX #7: البحث بـ lowercase
     const customer = await Customer.findOne({ email: email.toLowerCase() });
     if (!customer) return res.status(401).json({ error: 'Invalid credentials' });
 
@@ -263,8 +261,6 @@ app.post('/api/customers/login', authLimiter, async (req, res) => {
     if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
     const token = generateToken({ id: customer._id, type: 'customer' });
-
-    // ✅ FIX #8: رجّع بيانات الـ customer مع الـ token
     res.json({
       token,
       customer: { id: customer._id, username: customer.username, email: customer.email, phone: customer.phone },
@@ -286,8 +282,6 @@ app.get('/api/customers/me', authenticateToken, requireCustomer, async (req, res
   }
 });
 
-// ✅ FIX #9: endpoint صح للـ customer يشوف orders بتاعته بس — secure
-//    الكود القديم كان يحاول يجيب /api/orders (admin endpoint) ويفلتره في الـ frontend — خطأ أمني كبير
 app.get('/api/customers/orders', authenticateToken, requireCustomer, async (req, res) => {
   try {
     const customer = await Customer.findById(req.user.id);
@@ -490,10 +484,8 @@ app.post('/api/products', authenticateToken, requireAdmin, upload.single('image'
     const parsedStock = parseInt(stock, 10);
 
     if (isNaN(parsedPrice) || parsedPrice < 0) return res.status(400).json({ error: 'Invalid price value' });
-    // ✅ FIX #10: validate stock
     if (isNaN(parsedStock) || parsedStock < 0) return res.status(400).json({ error: 'Invalid stock value' });
 
-    // ✅ FIX #11: التأكد إن الـ category موجودة
     const catExists = await Category.findOne({ name: category });
     if (!catExists) return res.status(400).json({ error: `Category "${category}" does not exist` });
 
@@ -508,7 +500,6 @@ app.post('/api/products', authenticateToken, requireAdmin, upload.single('image'
 
     res.status(201).json(product);
   } catch (err) {
-    // ✅ FIX #12: احذف الصورة المرفوعة لو الـ request فشل
     if (req.file) {
       const fp = path.join(uploadsDir, req.file.filename);
       if (fs.existsSync(fp)) fs.unlinkSync(fp);
@@ -539,7 +530,6 @@ app.put('/api/products/:id', authenticateToken, requireAdmin, upload.single('ima
       product.stock = s;
     }
     if (category !== undefined) {
-      // ✅ FIX #13: التأكد إن الـ category موجودة عند التعديل
       const catExists = await Category.findOne({ name: category });
       if (!catExists) return res.status(400).json({ error: `Category "${category}" does not exist` });
       product.category = category;
@@ -623,7 +613,6 @@ app.post('/api/orders', async (req, res) => {
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'Order must contain at least one item' });
     }
-    // ✅ FIX #14: حد أقصى للـ items
     if (items.length > 50) {
       return res.status(400).json({ error: 'Too many items in a single order (max 50)' });
     }
@@ -636,7 +625,6 @@ app.post('/api/orders', async (req, res) => {
       const prodId = item.id || item.productId;
       const qty    = Number(item.quantity) || 1;
 
-      // ✅ FIX #15: validate quantity بشكل صريح
       if (!Number.isInteger(qty) || qty < 1 || qty > 1000) {
         for (const d of decremented) await Product.findByIdAndUpdate(d.id, { $inc: { stock: d.qty } });
         return res.status(400).json({ error: 'Invalid quantity. Must be between 1 and 1000.' });
@@ -692,7 +680,6 @@ app.put('/api/orders/:id/status', authenticateToken, requireAdmin, async (req, r
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    // ✅ FIX #16: منع رجوع الـ status لحالة سابقة غير منطقية
     if (order.status === 'delivered' && status === 'pending') {
       return res.status(400).json({ error: 'Cannot revert a delivered order to pending' });
     }
@@ -732,7 +719,6 @@ app.get('/api/stats', authenticateToken, requireAdmin, async (_req, res) => {
         Admin.countDocuments(),
         Order.aggregate([{ $group: { _id: null, sum: { $sum: '$totalAmount' } } }]),
         Order.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
-        // ✅ FIX #17: low stock في الـ stats مباشرة
         Product.find({ stock: { $lte: 5 } }).select('name stock category').limit(10),
       ]);
 
@@ -755,7 +741,6 @@ app.get('/admin', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
-// ✅ FIX #18: health check endpoint
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime(), time: new Date().toISOString() });
 });
@@ -768,7 +753,6 @@ app.get('/', (_req, res) => {
 //  ERROR HANDLERS
 // ============================================================
 
-// ✅ FIX #19: error handler شامل لأنواع errors أكتر
 app.use((err, _req, res, _next) => {
   console.error('Unhandled error:', err.message);
 
