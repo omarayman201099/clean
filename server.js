@@ -20,6 +20,7 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 // ======================== EXPRESS APP ========================
 
 const app = express();
+app.set('trust proxy', 1);
 
 app.use(helmet({
   contentSecurityPolicy    : false,
@@ -27,7 +28,6 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 
-// ✅ FIX: CORS يقبل كل الـ origins أو الـ ALLOWED_ORIGIN من الـ env
 app.use(cors({
   origin        : process.env.ALLOWED_ORIGIN || true,
   methods       : ['GET', 'POST', 'PUT', 'DELETE'],
@@ -169,32 +169,6 @@ const Category = mongoose.model('Category', categorySchema);
 const Product  = mongoose.model('Product',  productSchema);
 const Order    = mongoose.model('Order',    orderSchema);
 
-// ======================== FILE UPLOAD =======================
-
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadsDir),
-  filename   : (_req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  },
-});
-
-const upload = multer({
-  storage,
-  limits    : { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const allowed = /jpeg|jpg|png|gif|webp/;
-    const extOk   = allowed.test(path.extname(file.originalname).toLowerCase());
-    // ✅ FIX #2: mime type check أدق
-    const mimeOk  = /image\/(jpeg|png|gif|webp)/.test(file.mimetype);
-    if (extOk && mimeOk) return cb(null, true);
-    cb(new Error('Only image files (jpeg, jpg, png, gif, webp) are allowed'));
-  },
-});
-
 // ======================== HELPERS ===========================
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -249,9 +223,7 @@ app.post('/api/customers/register', registerLimiter, async (req, res) => {
     const { username, email, password, phone } = req.body;
     if (!username || !email || !password)
       return res.status(400).json({ error: 'username, email and password are required' });
-    }
-    // ✅ FIX #4: username validation
-    if (username.trim().length < 2) {
+    if (username.trim().length < 2)
       return res.status(400).json({ error: 'Username must be at least 2 characters' });
     if (!EMAIL_REGEX.test(email))
       return res.status(400).json({ error: 'Invalid email format' });
@@ -265,8 +237,6 @@ app.post('/api/customers/register', registerLimiter, async (req, res) => {
     const customer = await Customer.create({ username: username.trim(), email: email.toLowerCase(), password: hash, phone });
     const token    = generateToken({ id: customer._id, type: 'customer' });
 
-    // ✅ FIX #5: رجّع token + بيانات الـ customer بعد التسجيل مباشرة (auto-login)
-    const token = generateToken({ id: customer._id, type: 'customer' });
     res.status(201).json({
       token,
       customer: { id: customer._id, username: customer.username, email: customer.email, phone: customer.phone },
@@ -497,11 +467,8 @@ app.post('/api/products', authenticateToken, requireAdmin, upload.single('image'
 
     res.status(201).json(product);
   } catch (err) {
-    // ✅ FIX #12: احذف الصورة المرفوعة لو الـ request فشل
-    if (req.file) {
-      const fp = path.join(uploadsDir, req.file.filename);
-      if (fs.existsSync(fp)) fs.unlinkSync(fp);
-    }
+    // لو الـ upload تم بس فيه error، احذف الصورة من Cloudinary
+    if (req.file?.filename) await deleteCloudinaryImage(req.file.filename);
     console.error('POST /api/products error:', err);
     res.status(500).json({ error: 'Failed to create product' });
   }
@@ -590,9 +557,7 @@ app.post('/api/orders', async (req, res) => {
       return res.status(400).json({ error: 'Invalid customer email format' });
     if (!Array.isArray(items) || items.length === 0)
       return res.status(400).json({ error: 'Order must contain at least one item' });
-    }
-    // ✅ FIX #14: حد أقصى للـ items
-    if (items.length > 50) {
+    if (items.length > 50)
       return res.status(400).json({ error: 'Too many items in a single order (max 50)' });
 
     const decremented    = [];
@@ -654,9 +619,7 @@ app.put('/api/orders/:id/status', authenticateToken, requireAdmin, async (req, r
 
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: 'Order not found' });
-
-    // ✅ FIX #16: منع رجوع الـ status لحالة سابقة غير منطقية
-    if (order.status === 'delivered' && status === 'pending') {
+    if (order.status === 'delivered' && status === 'pending')
       return res.status(400).json({ error: 'Cannot revert a delivered order to pending' });
 
     order.status    = status;
@@ -705,18 +668,9 @@ app.get('/api/stats', authenticateToken, requireAdmin, async (_req, res) => {
 //  PAGE ROUTES
 // ============================================================
 
-app.get('/admin', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
-});
-
-// ✅ FIX #18: health check endpoint
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime(), time: new Date().toISOString() });
-});
-
-app.get('/', (_req, res) => {
-  res.json({ status: 'ok', message: 'Cleaning Store Backend Running' });
-});
+app.get('/admin', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+app.get('/health', (_req, res) => res.json({ status: 'ok', uptime: process.uptime(), time: new Date().toISOString() }));
+app.get('/', (_req, res) => res.json({ status: 'ok', message: 'Cleaning Store Backend Running' }));
 
 // ============================================================
 //  ERROR HANDLERS
