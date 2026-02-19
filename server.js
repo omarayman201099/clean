@@ -1,27 +1,25 @@
 /* eslint-disable no-console */
 // ============================================================
-//  Cleaning Products Store — Main Server (Fixed & Secured)
+//  Cleaning Products Store — Main Server + Cloudinary Images
 // ============================================================
 
 require('dotenv').config();
 
-const express   = require('express');
-const mongoose  = require('mongoose');
-const multer    = require('multer');
-const cors      = require('cors');
-const path      = require('path');
-const fs        = require('fs');
-const bcrypt    = require('bcryptjs');
-const jwt       = require('jsonwebtoken');
-const rateLimit = require('express-rate-limit');
-const helmet    = require('helmet');
+const express    = require('express');
+const mongoose   = require('mongoose');
+const multer     = require('multer');
+const cors       = require('cors');
+const path       = require('path');
+const bcrypt     = require('bcryptjs');
+const jwt        = require('jsonwebtoken');
+const rateLimit  = require('express-rate-limit');
+const helmet     = require('helmet');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 // ======================== EXPRESS APP ========================
 
 const app = express();
-
-// ✅ FIX: trust proxy عشان Railway وأي reverse proxy
-app.set('trust proxy', 1);
 
 app.use(helmet({
   contentSecurityPolicy    : false,
@@ -40,12 +38,6 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ✅ FIX #1: CORP header على الـ uploads عشان الصور تتحمل من أي origin
-app.use('/uploads', (req, res, next) => {
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  next();
-}, express.static(path.join(__dirname, 'uploads')));
-
 // ======================== CONFIGURATION =====================
 
 const PORT      = process.env.PORT || 3000;
@@ -61,6 +53,35 @@ if (!MONGO_URI) {
   console.error('FATAL: MONGO_URI environment variable is not set.');
   process.exit(1);
 }
+
+// ======================== CLOUDINARY ========================
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key   : process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder         : 'cleaning-store',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'gif'],
+    transformation : [{ width: 800, height: 800, crop: 'limit', quality: 'auto' }],
+  },
+});
+
+const upload = multer({
+  storage,
+  limits    : { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = /jpeg|jpg|png|gif|webp/;
+    const extOk   = allowed.test(path.extname(file.originalname).toLowerCase());
+    const mimeOk  = /image\/(jpeg|png|gif|webp)/.test(file.mimetype);
+    if (extOk && mimeOk) return cb(null, true);
+    cb(new Error('Only image files (jpeg, jpg, png, gif, webp) are allowed'));
+  },
+});
 
 // ======================== MONGODB ===========================
 
@@ -117,7 +138,8 @@ const productSchema = new mongoose.Schema({
   price      : { type: Number, required: true, min: 0 },
   category   : { type: String, required: true },
   stock      : { type: Number, default: 0, min: 0 },
-  image      : { type: String, default: '/uploads/placeholder.svg' },
+  image      : { type: String, default: '' },
+  imagePublicId: { type: String, default: '' }, // Cloudinary public_id للحذف
   createdAt  : { type: Date, default: Date.now },
   updatedAt  : { type: Date },
 });
@@ -166,6 +188,7 @@ const upload = multer({
   fileFilter: (_req, file, cb) => {
     const allowed = /jpeg|jpg|png|gif|webp/;
     const extOk   = allowed.test(path.extname(file.originalname).toLowerCase());
+    // ✅ FIX #2: mime type check أدق
     const mimeOk  = /image\/(jpeg|png|gif|webp)/.test(file.mimetype);
     if (extOk && mimeOk) return cb(null, true);
     cb(new Error('Only image files (jpeg, jpg, png, gif, webp) are allowed'));
@@ -210,6 +233,13 @@ function isValidObjectId(id) {
   return mongoose.Types.ObjectId.isValid(id);
 }
 
+// حذف صورة من Cloudinary بالـ public_id
+async function deleteCloudinaryImage(publicId) {
+  if (!publicId) return;
+  try { await cloudinary.uploader.destroy(publicId); }
+  catch (e) { console.warn('Cloudinary delete warning:', e.message); }
+}
+
 // ============================================================
 //  ROUTES — CUSTOMER AUTH
 // ============================================================
@@ -217,26 +247,25 @@ function isValidObjectId(id) {
 app.post('/api/customers/register', registerLimiter, async (req, res) => {
   try {
     const { username, email, password, phone } = req.body;
-
-    if (!username || !email || !password) {
+    if (!username || !email || !password)
       return res.status(400).json({ error: 'username, email and password are required' });
     }
+    // ✅ FIX #4: username validation
     if (username.trim().length < 2) {
       return res.status(400).json({ error: 'Username must be at least 2 characters' });
-    }
-    if (!EMAIL_REGEX.test(email)) {
+    if (!EMAIL_REGEX.test(email))
       return res.status(400).json({ error: 'Invalid email format' });
-    }
-    if (password.length < 6) {
+    if (password.length < 6)
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
-    }
 
     const existing = await Customer.findOne({ email: email.toLowerCase() });
     if (existing) return res.status(400).json({ error: 'Email already in use' });
 
     const hash     = await bcrypt.hash(password, 12);
     const customer = await Customer.create({ username: username.trim(), email: email.toLowerCase(), password: hash, phone });
+    const token    = generateToken({ id: customer._id, type: 'customer' });
 
+    // ✅ FIX #5: رجّع token + بيانات الـ customer بعد التسجيل مباشرة (auto-login)
     const token = generateToken({ id: customer._id, type: 'customer' });
     res.status(201).json({
       token,
@@ -286,10 +315,7 @@ app.get('/api/customers/orders', authenticateToken, requireCustomer, async (req,
   try {
     const customer = await Customer.findById(req.user.id);
     if (!customer) return res.status(404).json({ error: 'Customer not found' });
-
-    const orders = await Order.find({ customerEmail: customer.email })
-      .sort({ createdAt: -1 })
-      .select('-__v');
+    const orders = await Order.find({ customerEmail: customer.email }).sort({ createdAt: -1 }).select('-__v');
     res.json(orders);
   } catch (err) {
     console.error('GET /api/customers/orders error:', err);
@@ -304,30 +330,25 @@ app.get('/api/customers/orders', authenticateToken, requireCustomer, async (req,
 app.post('/api/auth/register', registerLimiter, async (req, res) => {
   try {
     const { username, email, password, phone } = req.body;
-
-    if (!username || !email || !password) {
+    if (!username || !email || !password)
       return res.status(400).json({ error: 'username, email and password are required' });
-    }
     if (!EMAIL_REGEX.test(email)) return res.status(400).json({ error: 'Invalid email format' });
     if (password.length < 8) return res.status(400).json({ error: 'Admin password must be at least 8 characters' });
 
     const count = await Admin.countDocuments();
-
     if (count > 0) {
       const token = (req.headers.authorization || '').split(' ')[1];
       if (!token) return res.status(401).json({ error: 'Only a superadmin can register new admins.' });
       let decoded;
       try { decoded = jwt.verify(token, JWT_SECRET); }
       catch { return res.status(403).json({ error: 'Invalid or expired token.' }); }
-      if (decoded.type !== 'admin' || decoded.role !== 'superadmin') {
+      if (decoded.type !== 'admin' || decoded.role !== 'superadmin')
         return res.status(403).json({ error: 'Only a superadmin can register new admins.' });
-      }
     }
 
     const role  = count === 0 ? 'superadmin' : 'admin';
     const hash  = await bcrypt.hash(password, 12);
     const admin = await Admin.create({ username, email: email.toLowerCase(), password: hash, role, phone });
-
     const newToken = generateToken({ id: admin._id, type: 'admin', role: admin.role });
     res.status(201).json({ token: newToken, admin: { id: admin._id, username, email: admin.email, role } });
   } catch (err) {
@@ -372,12 +393,8 @@ app.get('/api/auth/me', authenticateToken, requireAdmin, async (req, res) => {
 // ============================================================
 
 app.get('/api/categories', async (_req, res) => {
-  try {
-    res.json(await Category.find().sort({ name: 1 }));
-  } catch (err) {
-    console.error('GET /api/categories error:', err);
-    res.status(500).json({ error: 'Failed to load categories' });
-  }
+  try { res.json(await Category.find().sort({ name: 1 })); }
+  catch (err) { res.status(500).json({ error: 'Failed to load categories' }); }
 });
 
 app.get('/api/categories/:id', async (req, res) => {
@@ -386,10 +403,7 @@ app.get('/api/categories/:id', async (req, res) => {
     const category = await Category.findById(req.params.id);
     if (!category) return res.status(404).json({ error: 'Category not found' });
     res.json(category);
-  } catch (err) {
-    console.error('GET /api/categories/:id error:', err);
-    res.status(500).json({ error: 'Failed to load category' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed to load category' }); }
 });
 
 app.post('/api/categories', authenticateToken, requireAdmin, async (req, res) => {
@@ -399,7 +413,6 @@ app.post('/api/categories', authenticateToken, requireAdmin, async (req, res) =>
     const category = await Category.create({ name: name.trim(), description });
     res.status(201).json(category);
   } catch (err) {
-    console.error('POST /api/categories error:', err);
     if (err.code === 11000) return res.status(400).json({ error: 'Category already exists' });
     res.status(500).json({ error: 'Failed to create category' });
   }
@@ -410,7 +423,6 @@ app.put('/api/categories/:id', authenticateToken, requireAdmin, async (req, res)
     if (!isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid category ID' });
     const category = await Category.findById(req.params.id);
     if (!category) return res.status(404).json({ error: 'Category not found' });
-
     const { name, description } = req.body;
     if (name) category.name = name.trim();
     if (description !== undefined) category.description = description;
@@ -418,7 +430,6 @@ app.put('/api/categories/:id', authenticateToken, requireAdmin, async (req, res)
     await category.save();
     res.json(category);
   } catch (err) {
-    console.error('PUT /api/categories/:id error:', err);
     if (err.code === 11000) return res.status(400).json({ error: 'Category name already exists' });
     res.status(500).json({ error: 'Failed to update category' });
   }
@@ -429,18 +440,12 @@ app.delete('/api/categories/:id', authenticateToken, requireAdmin, async (req, r
     if (!isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid category ID' });
     const category = await Category.findById(req.params.id);
     if (!category) return res.status(404).json({ error: 'Category not found' });
-
     const productCount = await Product.countDocuments({ category: category.name });
-    if (productCount > 0) {
+    if (productCount > 0)
       return res.status(400).json({ error: `Cannot delete category that has ${productCount} product(s)` });
-    }
-
     await category.deleteOne();
     res.json({ message: 'Category deleted' });
-  } catch (err) {
-    console.error('DELETE /api/categories/:id error:', err);
-    res.status(500).json({ error: 'Failed to delete category' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed to delete category' }); }
 });
 
 // ============================================================
@@ -454,10 +459,7 @@ app.get('/api/products', async (req, res) => {
     if (category && category !== 'all') filter.category = category;
     if (!all || all === 'false') filter.stock = { $gt: 0 };
     res.json(await Product.find(filter).sort({ createdAt: -1 }));
-  } catch (err) {
-    console.error('GET /api/products error:', err);
-    res.status(500).json({ error: 'Failed to load products' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed to load products' }); }
 });
 
 app.get('/api/products/:id', async (req, res) => {
@@ -466,23 +468,17 @@ app.get('/api/products/:id', async (req, res) => {
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ error: 'Product not found' });
     res.json(product);
-  } catch (err) {
-    console.error('GET /api/products/:id error:', err);
-    res.status(500).json({ error: 'Failed to load product' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed to load product' }); }
 });
 
 app.post('/api/products', authenticateToken, requireAdmin, upload.single('image'), async (req, res) => {
   try {
     const { name, description, price, category, stock } = req.body;
-
-    if (!name || !price || !category) {
+    if (!name || !price || !category)
       return res.status(400).json({ error: 'name, price and category are required' });
-    }
 
     const parsedPrice = parseFloat(price);
     const parsedStock = parseInt(stock, 10);
-
     if (isNaN(parsedPrice) || parsedPrice < 0) return res.status(400).json({ error: 'Invalid price value' });
     if (isNaN(parsedStock) || parsedStock < 0) return res.status(400).json({ error: 'Invalid stock value' });
 
@@ -490,16 +486,18 @@ app.post('/api/products', authenticateToken, requireAdmin, upload.single('image'
     if (!catExists) return res.status(400).json({ error: `Category "${category}" does not exist` });
 
     const product = await Product.create({
-      name       : name.trim(),
-      description: description?.trim() || '',
-      price      : parsedPrice,
+      name         : name.trim(),
+      description  : description?.trim() || '',
+      price        : parsedPrice,
       category,
-      stock      : parsedStock || 0,
-      image      : req.file ? '/uploads/' + req.file.filename : '/uploads/placeholder.svg',
+      stock        : parsedStock || 0,
+      image        : req.file ? req.file.path : '',        // Cloudinary URL
+      imagePublicId: req.file ? req.file.filename : '',    // Cloudinary public_id
     });
 
     res.status(201).json(product);
   } catch (err) {
+    // ✅ FIX #12: احذف الصورة المرفوعة لو الـ request فشل
     if (req.file) {
       const fp = path.join(uploadsDir, req.file.filename);
       if (fs.existsSync(fp)) fs.unlinkSync(fp);
@@ -516,7 +514,6 @@ app.put('/api/products/:id', authenticateToken, requireAdmin, upload.single('ima
     if (!product) return res.status(404).json({ error: 'Product not found' });
 
     const { name, description, price, category, stock } = req.body;
-
     if (name !== undefined)        product.name        = name.trim();
     if (description !== undefined) product.description = description.trim();
     if (price !== undefined) {
@@ -536,21 +533,17 @@ app.put('/api/products/:id', authenticateToken, requireAdmin, upload.single('ima
     }
 
     if (req.file) {
-      if (product.image && product.image !== '/uploads/placeholder.svg') {
-        const oldPath = path.join(__dirname, product.image);
-        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-      }
-      product.image = '/uploads/' + req.file.filename;
+      // احذف الصورة القديمة من Cloudinary
+      await deleteCloudinaryImage(product.imagePublicId);
+      product.image         = req.file.path;      // URL الجديد
+      product.imagePublicId = req.file.filename;  // public_id الجديد
     }
 
     product.updatedAt = Date.now();
     await product.save();
     res.json(product);
   } catch (err) {
-    if (req.file) {
-      const fp = path.join(uploadsDir, req.file.filename);
-      if (fs.existsSync(fp)) fs.unlinkSync(fp);
-    }
+    if (req.file?.filename) await deleteCloudinaryImage(req.file.filename);
     console.error('PUT /api/products/:id error:', err);
     res.status(500).json({ error: 'Failed to update product' });
   }
@@ -561,12 +554,7 @@ app.delete('/api/products/:id', authenticateToken, requireAdmin, async (req, res
     if (!isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid product ID' });
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ error: 'Product not found' });
-
-    if (product.image && product.image !== '/uploads/placeholder.svg') {
-      const oldPath = path.join(__dirname, product.image);
-      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-    }
-
+    await deleteCloudinaryImage(product.imagePublicId);
     await product.deleteOne();
     res.json({ message: 'Product deleted' });
   } catch (err) {
@@ -580,12 +568,8 @@ app.delete('/api/products/:id', authenticateToken, requireAdmin, async (req, res
 // ============================================================
 
 app.get('/api/orders', authenticateToken, requireAdmin, async (_req, res) => {
-  try {
-    res.json(await Order.find().sort({ createdAt: -1 }));
-  } catch (err) {
-    console.error('GET /api/orders error:', err);
-    res.status(500).json({ error: 'Failed to load orders' });
-  }
+  try { res.json(await Order.find().sort({ createdAt: -1 })); }
+  catch (err) { res.status(500).json({ error: 'Failed to load orders' }); }
 });
 
 app.get('/api/orders/:id', authenticateToken, requireAdmin, async (req, res) => {
@@ -594,28 +578,22 @@ app.get('/api/orders/:id', authenticateToken, requireAdmin, async (req, res) => 
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: 'Order not found' });
     res.json(order);
-  } catch (err) {
-    console.error('GET /api/orders/:id error:', err);
-    res.status(500).json({ error: 'Failed to load order' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed to load order' }); }
 });
 
 app.post('/api/orders', async (req, res) => {
   try {
     const { customerName, customerEmail, customerPhone, address, items } = req.body;
-
-    if (!customerName || !customerEmail || !address) {
+    if (!customerName || !customerEmail || !address)
       return res.status(400).json({ error: 'customerName, customerEmail and address are required' });
-    }
-    if (!EMAIL_REGEX.test(customerEmail)) {
+    if (!EMAIL_REGEX.test(customerEmail))
       return res.status(400).json({ error: 'Invalid customer email format' });
-    }
-    if (!Array.isArray(items) || items.length === 0) {
+    if (!Array.isArray(items) || items.length === 0)
       return res.status(400).json({ error: 'Order must contain at least one item' });
     }
+    // ✅ FIX #14: حد أقصى للـ items
     if (items.length > 50) {
       return res.status(400).json({ error: 'Too many items in a single order (max 50)' });
-    }
 
     const decremented    = [];
     const validatedItems = [];
@@ -629,7 +607,6 @@ app.post('/api/orders', async (req, res) => {
         for (const d of decremented) await Product.findByIdAndUpdate(d.id, { $inc: { stock: d.qty } });
         return res.status(400).json({ error: 'Invalid quantity. Must be between 1 and 1000.' });
       }
-
       if (!isValidObjectId(prodId)) {
         for (const d of decremented) await Product.findByIdAndUpdate(d.id, { $inc: { stock: d.qty } });
         return res.status(400).json({ error: `Invalid product ID: ${prodId}` });
@@ -670,19 +647,17 @@ app.post('/api/orders', async (req, res) => {
 app.put('/api/orders/:id/status', authenticateToken, requireAdmin, async (req, res) => {
   try {
     if (!isValidObjectId(req.params.id)) return res.status(400).json({ error: 'Invalid order ID' });
-
     const { status } = req.body;
     const validStatuses = ['pending', 'confirmed', 'delivered', 'cancelled'];
-    if (!status || !validStatuses.includes(status)) {
+    if (!status || !validStatuses.includes(status))
       return res.status(400).json({ error: `Status must be one of: ${validStatuses.join(', ')}` });
-    }
 
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
+    // ✅ FIX #16: منع رجوع الـ status لحالة سابقة غير منطقية
     if (order.status === 'delivered' && status === 'pending') {
       return res.status(400).json({ error: 'Cannot revert a delivered order to pending' });
-    }
 
     order.status    = status;
     order.updatedAt = Date.now();
@@ -700,10 +675,7 @@ app.delete('/api/orders/:id', authenticateToken, requireAdmin, requireSuperAdmin
     const deleted = await Order.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ error: 'Order not found' });
     res.json({ message: 'Order deleted' });
-  } catch (err) {
-    console.error('DELETE /api/orders/:id error:', err);
-    res.status(500).json({ error: 'Failed to delete order' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed to delete order' }); }
 });
 
 // ============================================================
@@ -725,12 +697,8 @@ app.get('/api/stats', authenticateToken, requireAdmin, async (_req, res) => {
     const totalSales     = salesAgg[0]?.sum || 0;
     const ordersByStatus = {};
     statusAgg.forEach((s) => { ordersByStatus[s._id] = s.count; });
-
     res.json({ totalProducts, totalOrders, totalAdmins, totalSales, ordersByStatus, lowStockProducts });
-  } catch (err) {
-    console.error('GET /api/stats error:', err);
-    res.status(500).json({ error: 'Failed to load stats' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed to load stats' }); }
 });
 
 // ============================================================
@@ -741,6 +709,7 @@ app.get('/admin', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
+// ✅ FIX #18: health check endpoint
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime(), time: new Date().toISOString() });
 });
@@ -755,7 +724,6 @@ app.get('/', (_req, res) => {
 
 app.use((err, _req, res, _next) => {
   console.error('Unhandled error:', err.message);
-
   if (err.name === 'MulterError') {
     if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'File too large. Maximum size is 5 MB.' });
     return res.status(400).json({ error: `Upload error: ${err.message}` });
@@ -764,16 +732,11 @@ app.use((err, _req, res, _next) => {
     const messages = Object.values(err.errors).map(e => e.message).join(', ');
     return res.status(400).json({ error: messages });
   }
-  if (err.name === 'CastError') {
-    return res.status(400).json({ error: 'Invalid ID format' });
-  }
-
+  if (err.name === 'CastError') return res.status(400).json({ error: 'Invalid ID format' });
   res.status(500).json({ error: 'Something went wrong.' });
 });
 
-app.use((_req, res) => {
-  res.status(404).json({ error: 'Endpoint not found.' });
-});
+app.use((_req, res) => res.status(404).json({ error: 'Endpoint not found.' }));
 
 // ============================================================
 //  START SERVER
@@ -781,9 +744,8 @@ app.use((_req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log('='.repeat(50));
-  console.log('  Cleaning Products Store Backend');
+  console.log('  Cleaning Products Store Backend + Cloudinary');
   console.log(`  ENV:  ${process.env.NODE_ENV || 'development'}`);
   console.log(`  Port: ${PORT}`);
-  console.log(`  Admin: /admin  |  Health: /health`);
   console.log('='.repeat(50));
 });
