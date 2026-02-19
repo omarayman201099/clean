@@ -133,15 +133,15 @@ const categorySchema = new mongoose.Schema({
 });
 
 const productSchema = new mongoose.Schema({
-  name       : { type: String, required: true, trim: true },
-  description: { type: String, default: '' },
-  price      : { type: Number, required: true, min: 0 },
-  category   : { type: String, required: true },
-  stock      : { type: Number, default: 0, min: 0 },
-  image      : { type: String, default: '' },
-  imagePublicId: { type: String, default: '' }, // Cloudinary public_id للحذف
-  createdAt  : { type: Date, default: Date.now },
-  updatedAt  : { type: Date },
+  name         : { type: String, required: true, trim: true },
+  description  : { type: String, default: '' },
+  price        : { type: Number, required: true, min: 0 },
+  category     : { type: String, required: true },
+  stock        : { type: Number, default: 0, min: 0 },
+  image        : { type: String, default: '' },      // Cloudinary secure_url
+  imagePublicId: { type: String, default: '' },      // Cloudinary public_id للحذف
+  createdAt    : { type: Date, default: Date.now },
+  updatedAt    : { type: Date },
 });
 
 const orderItemSchema = new mongoose.Schema({
@@ -207,7 +207,17 @@ function isValidObjectId(id) {
   return mongoose.Types.ObjectId.isValid(id);
 }
 
-// حذف صورة من Cloudinary بالـ public_id
+// ✅ الـ fields الصحيحة من multer-storage-cloudinary:
+//    req.file.path       = secure_url (https://res.cloudinary.com/...)
+//    req.file.public_id  = public_id  (cleaning-store/abc123)
+function getImageFromFile(file) {
+  if (!file) return { image: '', imagePublicId: '' };
+  return {
+    image        : file.path,       // secure_url الكامل
+    imagePublicId: file.public_id,  // public_id للحذف لاحقاً
+  };
+}
+
 async function deleteCloudinaryImage(publicId) {
   if (!publicId) return;
   try { await cloudinary.uploader.destroy(publicId); }
@@ -234,9 +244,10 @@ app.post('/api/customers/register', registerLimiter, async (req, res) => {
     if (existing) return res.status(400).json({ error: 'Email already in use' });
 
     const hash     = await bcrypt.hash(password, 12);
-    const customer = await Customer.create({ username: username.trim(), email: email.toLowerCase(), password: hash, phone });
-    const token    = generateToken({ id: customer._id, type: 'customer' });
-
+    const customer = await Customer.create({
+      username: username.trim(), email: email.toLowerCase(), password: hash, phone,
+    });
+    const token = generateToken({ id: customer._id, type: 'customer' });
     res.status(201).json({
       token,
       customer: { id: customer._id, username: customer.username, email: customer.email, phone: customer.phone },
@@ -276,7 +287,6 @@ app.get('/api/customers/me', authenticateToken, requireCustomer, async (req, res
     if (!customer) return res.status(404).json({ error: 'Customer not found' });
     res.json(customer);
   } catch (err) {
-    console.error('GET /api/customers/me error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -285,10 +295,10 @@ app.get('/api/customers/orders', authenticateToken, requireCustomer, async (req,
   try {
     const customer = await Customer.findById(req.user.id);
     if (!customer) return res.status(404).json({ error: 'Customer not found' });
-    const orders = await Order.find({ customerEmail: customer.email }).sort({ createdAt: -1 }).select('-__v');
+    const orders = await Order.find({ customerEmail: customer.email })
+      .sort({ createdAt: -1 }).select('-__v');
     res.json(orders);
   } catch (err) {
-    console.error('GET /api/customers/orders error:', err);
     res.status(500).json({ error: 'Failed to load orders' });
   }
 });
@@ -303,7 +313,8 @@ app.post('/api/auth/register', registerLimiter, async (req, res) => {
     if (!username || !email || !password)
       return res.status(400).json({ error: 'username, email and password are required' });
     if (!EMAIL_REGEX.test(email)) return res.status(400).json({ error: 'Invalid email format' });
-    if (password.length < 8) return res.status(400).json({ error: 'Admin password must be at least 8 characters' });
+    if (password.length < 8)
+      return res.status(400).json({ error: 'Admin password must be at least 8 characters' });
 
     const count = await Admin.countDocuments();
     if (count > 0) {
@@ -353,7 +364,6 @@ app.get('/api/auth/me', authenticateToken, requireAdmin, async (req, res) => {
     if (!admin) return res.status(404).json({ error: 'Admin not found' });
     res.json(admin);
   } catch (err) {
-    console.error('GET /api/auth/me error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -364,7 +374,7 @@ app.get('/api/auth/me', authenticateToken, requireAdmin, async (req, res) => {
 
 app.get('/api/categories', async (_req, res) => {
   try { res.json(await Category.find().sort({ name: 1 })); }
-  catch (err) { res.status(500).json({ error: 'Failed to load categories' }); }
+  catch { res.status(500).json({ error: 'Failed to load categories' }); }
 });
 
 app.get('/api/categories/:id', async (req, res) => {
@@ -373,7 +383,7 @@ app.get('/api/categories/:id', async (req, res) => {
     const category = await Category.findById(req.params.id);
     if (!category) return res.status(404).json({ error: 'Category not found' });
     res.json(category);
-  } catch (err) { res.status(500).json({ error: 'Failed to load category' }); }
+  } catch { res.status(500).json({ error: 'Failed to load category' }); }
 });
 
 app.post('/api/categories', authenticateToken, requireAdmin, async (req, res) => {
@@ -415,7 +425,7 @@ app.delete('/api/categories/:id', authenticateToken, requireAdmin, async (req, r
       return res.status(400).json({ error: `Cannot delete category that has ${productCount} product(s)` });
     await category.deleteOne();
     res.json({ message: 'Category deleted' });
-  } catch (err) { res.status(500).json({ error: 'Failed to delete category' }); }
+  } catch { res.status(500).json({ error: 'Failed to delete category' }); }
 });
 
 // ============================================================
@@ -429,7 +439,7 @@ app.get('/api/products', async (req, res) => {
     if (category && category !== 'all') filter.category = category;
     if (!all || all === 'false') filter.stock = { $gt: 0 };
     res.json(await Product.find(filter).sort({ createdAt: -1 }));
-  } catch (err) { res.status(500).json({ error: 'Failed to load products' }); }
+  } catch { res.status(500).json({ error: 'Failed to load products' }); }
 });
 
 app.get('/api/products/:id', async (req, res) => {
@@ -438,7 +448,7 @@ app.get('/api/products/:id', async (req, res) => {
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ error: 'Product not found' });
     res.json(product);
-  } catch (err) { res.status(500).json({ error: 'Failed to load product' }); }
+  } catch { res.status(500).json({ error: 'Failed to load product' }); }
 });
 
 app.post('/api/products', authenticateToken, requireAdmin, upload.single('image'), async (req, res) => {
@@ -455,20 +465,22 @@ app.post('/api/products', authenticateToken, requireAdmin, upload.single('image'
     const catExists = await Category.findOne({ name: category });
     if (!catExists) return res.status(400).json({ error: `Category "${category}" does not exist` });
 
+    // ✅ استخدام الـ helper الصح
+    const { image, imagePublicId } = getImageFromFile(req.file);
+
     const product = await Product.create({
-      name         : name.trim(),
-      description  : description?.trim() || '',
-      price        : parsedPrice,
+      name: name.trim(),
+      description: description?.trim() || '',
+      price: parsedPrice,
       category,
-      stock        : parsedStock || 0,
-      image        : req.file ? req.file.path : '',        // Cloudinary URL
-      imagePublicId: req.file ? req.file.filename : '',    // Cloudinary public_id
+      stock: parsedStock || 0,
+      image,
+      imagePublicId,
     });
 
     res.status(201).json(product);
   } catch (err) {
-    // لو الـ upload تم بس فيه error، احذف الصورة من Cloudinary
-    if (req.file?.filename) await deleteCloudinaryImage(req.file.filename);
+    if (req.file?.public_id) await deleteCloudinaryImage(req.file.public_id);
     console.error('POST /api/products error:', err);
     res.status(500).json({ error: 'Failed to create product' });
   }
@@ -500,17 +512,18 @@ app.put('/api/products/:id', authenticateToken, requireAdmin, upload.single('ima
     }
 
     if (req.file) {
-      // احذف الصورة القديمة من Cloudinary
+      // ✅ احذف الصورة القديمة واحفظ الجديدة بالـ fields الصح
       await deleteCloudinaryImage(product.imagePublicId);
-      product.image         = req.file.path;      // URL الجديد
-      product.imagePublicId = req.file.filename;  // public_id الجديد
+      const { image, imagePublicId } = getImageFromFile(req.file);
+      product.image         = image;
+      product.imagePublicId = imagePublicId;
     }
 
     product.updatedAt = Date.now();
     await product.save();
     res.json(product);
   } catch (err) {
-    if (req.file?.filename) await deleteCloudinaryImage(req.file.filename);
+    if (req.file?.public_id) await deleteCloudinaryImage(req.file.public_id);
     console.error('PUT /api/products/:id error:', err);
     res.status(500).json({ error: 'Failed to update product' });
   }
@@ -536,7 +549,7 @@ app.delete('/api/products/:id', authenticateToken, requireAdmin, async (req, res
 
 app.get('/api/orders', authenticateToken, requireAdmin, async (_req, res) => {
   try { res.json(await Order.find().sort({ createdAt: -1 })); }
-  catch (err) { res.status(500).json({ error: 'Failed to load orders' }); }
+  catch { res.status(500).json({ error: 'Failed to load orders' }); }
 });
 
 app.get('/api/orders/:id', authenticateToken, requireAdmin, async (req, res) => {
@@ -545,7 +558,7 @@ app.get('/api/orders/:id', authenticateToken, requireAdmin, async (req, res) => 
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: 'Order not found' });
     res.json(order);
-  } catch (err) { res.status(500).json({ error: 'Failed to load order' }); }
+  } catch { res.status(500).json({ error: 'Failed to load order' }); }
 });
 
 app.post('/api/orders', async (req, res) => {
@@ -638,7 +651,7 @@ app.delete('/api/orders/:id', authenticateToken, requireAdmin, requireSuperAdmin
     const deleted = await Order.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ error: 'Order not found' });
     res.json({ message: 'Order deleted' });
-  } catch (err) { res.status(500).json({ error: 'Failed to delete order' }); }
+  } catch { res.status(500).json({ error: 'Failed to delete order' }); }
 });
 
 // ============================================================
@@ -661,16 +674,16 @@ app.get('/api/stats', authenticateToken, requireAdmin, async (_req, res) => {
     const ordersByStatus = {};
     statusAgg.forEach((s) => { ordersByStatus[s._id] = s.count; });
     res.json({ totalProducts, totalOrders, totalAdmins, totalSales, ordersByStatus, lowStockProducts });
-  } catch (err) { res.status(500).json({ error: 'Failed to load stats' }); }
+  } catch { res.status(500).json({ error: 'Failed to load stats' }); }
 });
 
 // ============================================================
 //  PAGE ROUTES
 // ============================================================
 
-app.get('/admin', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+app.get('/admin',  (_req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.get('/health', (_req, res) => res.json({ status: 'ok', uptime: process.uptime(), time: new Date().toISOString() }));
-app.get('/', (_req, res) => res.json({ status: 'ok', message: 'Cleaning Store Backend Running' }));
+app.get('/',       (_req, res) => res.json({ status: 'ok', message: 'Cleaning Store Backend Running' }));
 
 // ============================================================
 //  ERROR HANDLERS
