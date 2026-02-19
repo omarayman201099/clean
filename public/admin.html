@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CleanPro — Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+
+<!-- ════════════════════ LOGIN ════════════════════ -->
+<div id="login-section">
+  <div class="login-glow"></div>
+
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="login-logo-mark">CP</div>
+      <div class="login-logo-text">Clean<em>Pro</em></div>
+    </div>
+
+    <!-- Tabs: Login / Register -->
+    <div class="login-tabs">
+      <button class="login-tab-btn active" id="tab-login-btn">Sign In</button>
+      <button class="login-tab-btn" id="tab-register-btn">Register</button>
+    </div>
+
+    <!-- Login Form -->
+    <div id="login-form-wrap">
+      <p class="login-sub">Welcome back, Admin</p>
+      <form id="login-form" autocomplete="off">
+        <div class="field">
+          <label>Username</label>
+          <input type="text" id="username" placeholder="your username" required autocomplete="username">
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input type="password" id="password" placeholder="••••••••" required autocomplete="current-password">
+        </div>
+        <p id="login-error" class="login-error" role="alert"></p>
+        <button type="submit" class="btn-login" id="login-btn">Sign In →</button>
+      </form>
+    </div>
+
+    <!-- Register Form -->
+    <div id="register-form-wrap" class="hidden">
+      <p class="login-sub">Create admin account</p>
+      <form id="register-form" autocomplete="off">
+        <div class="field">
+          <label>Username <span class="req">*</span></label>
+          <input type="text" id="reg-username" placeholder="admin_name" required>
+        </div>
+        <div class="field">
+          <label>Email <span class="req">*</span></label>
+          <input type="email" id="reg-email" placeholder="admin@company.com" required>
+        </div>
+        <div class="field">
+          <label>Phone <span class="optional">(optional)</span></label>
+          <input type="text" id="reg-phone" placeholder="+20 100 000 0000">
+        </div>
+        <div class="field">
+          <label>Password <span class="req">*</span></label>
+          <input type="password" id="reg-password" placeholder="Min 8 characters" required>
+        </div>
+        <div class="field">
+          <label>Superadmin Token <span class="optional">(required if not first admin)</span></label>
+          <input type="password" id="reg-token" placeholder="Existing admin token…">
+        </div>
+        <p id="register-error" class="login-error" role="alert"></p>
+        <button type="submit" class="btn-login" id="register-btn">Create Account →</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════ DASHBOARD ════════════════════ -->
+<div id="dashboard-section" class="hidden">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+
+    <div class="sb-top">
+      <div class="sb-brand">
+        <div class="sb-logo-mark">CP</div>
+        <div class="sb-logo-text">Clean<em>Pro</em></div>
+      </div>
+      <button class="sb-collapse" id="sidebar-toggle" title="Collapse">‹</button>
+    </div>
+
+    <div class="sb-user">
+      <div class="sb-avatar" id="sb-avatar">A</div>
+      <div class="sb-user-info">
+        <div class="sb-user-name" id="sb-user-name">Admin</div>
+        <div class="sb-user-role" id="sb-user-role">admin</div>
+      </div>
+    </div>
+
+    <nav class="sb-nav">
+      <button class="sb-item active" data-tab="overview">
+        <span class="sb-icon">◈</span>
+        <span class="sb-label">Overview</span>
+      </button>
+      <button class="sb-item" data-tab="products">
+        <span class="sb-icon">⬡</span>
+        <span class="sb-label">Products</span>
+        <span class="sb-badge" id="badge-products"></span>
+      </button>
+      <button class="sb-item" data-tab="categories">
+        <span class="sb-icon">◎</span>
+        <span class="sb-label">Categories</span>
+      </button>
+      <button class="sb-item" data-tab="orders">
+        <span class="sb-icon">◷</span>
+        <span class="sb-label">Orders</span>
+        <span class="sb-badge sb-badge-amber" id="badge-orders"></span>
+      </button>
+      <button class="sb-item" data-tab="add-product">
+        <span class="sb-icon">⊕</span>
+        <span class="sb-label">Add Product</span>
+      </button>
+    </nav>
+
+    <button id="logout-btn" class="sb-logout">
+      <span class="sb-icon">⏻</span>
+      <span class="sb-label">Sign Out</span>
+    </button>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- TOPBAR -->
+    <header class="topbar">
+      <div class="topbar-l">
+        <button class="mobile-menu" id="mobile-menu-btn">☰</button>
+        <h1 class="page-title" id="page-title">Overview</h1>
+      </div>
+      <div class="topbar-r">
+        <div class="t-search-wrap">
+          <span class="t-search-icon">⌕</span>
+          <input type="text" id="global-search" class="t-search" placeholder="Search…">
+          <div id="search-dropdown" class="search-dropdown hidden"></div>
+        </div>
+        <span class="t-clock" id="t-clock"></span>
+        <button class="t-notif" id="notif-btn" title="Pending orders">
+          🔔
+          <span class="notif-badge hidden" id="notif-count">0</span>
+        </button>
+        <div class="t-avatar" id="t-avatar">A</div>
+      </div>
+    </header>
+
+    <!-- ══ OVERVIEW ══ -->
+    <section id="tab-overview" class="tab active">
+
+      <div class="kpi-row">
+        <div class="kpi green">
+          <div class="kpi-top">
+            <div class="kpi-icon-wrap green">📦</div>
+            <span class="kpi-trend up" id="kpi-products-trend">—</span>
+          </div>
+          <div class="kpi-val" id="stat-products">—</div>
+          <div class="kpi-label">Total Products</div>
+        </div>
+        <div class="kpi blue">
+          <div class="kpi-top">
+            <div class="kpi-icon-wrap blue">🛒</div>
+            <span class="kpi-trend up" id="kpi-orders-trend">—</span>
+          </div>
+          <div class="kpi-val" id="stat-orders">—</div>
+          <div class="kpi-label">Total Orders</div>
+        </div>
+        <div class="kpi violet">
+          <div class="kpi-top">
+            <div class="kpi-icon-wrap violet">💰</div>
+          </div>
+          <div class="kpi-val" id="stat-sales">—</div>
+          <div class="kpi-label">Total Revenue</div>
+        </div>
+        <div class="kpi amber" id="kpi-pending">
+          <div class="kpi-top">
+            <div class="kpi-icon-wrap amber">⚑</div>
+          </div>
+          <div class="kpi-val amber" id="stat-pending">—</div>
+          <div class="kpi-label">Pending Orders</div>
+        </div>
+      </div>
+
+      <div class="ov-grid">
+
+        <div class="panel full">
+          <div class="panel-hd">
+            <span class="panel-title">Order Status Breakdown</span>
+            <span class="live-badge"><span class="live-dot"></span>Live</span>
+          </div>
+          <div id="status-bars" class="status-bars">
+            <div class="shimmer h-48"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-hd">
+            <span class="panel-title">Recent Orders</span>
+            <button class="panel-action" data-tab="orders">View all →</button>
+          </div>
+          <div id="recent-orders" class="mini-list">
+            <div class="shimmer h-48"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-hd">
+            <span class="panel-title">Low Stock Alert</span>
+            <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--rose)" id="low-stock-count">—</span>
+          </div>
+          <div id="low-stock-list" class="mini-list">
+            <div class="shimmer h-48"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-hd"><span class="panel-title">Quick Actions</span></div>
+          <div class="qa-grid">
+            <button class="qa-btn" data-tab="add-product">⊕ New Product</button>
+            <button class="qa-btn" id="qa-add-category">◎ New Category</button>
+            <button class="qa-btn" data-tab="orders">◷ View Orders</button>
+            <button class="qa-btn" id="qa-export">↓ Export CSV</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ══ PRODUCTS ══ -->
+    <section id="tab-products" class="tab hidden">
+      <div class="tab-toolbar">
+        <div class="toolbar-filters">
+          <input type="text" id="product-search" class="toolbar-input" placeholder="Filter products…">
+          <select id="product-cat-filter" class="toolbar-select">
+            <option value="">All Categories</option>
+          </select>
+          <select id="product-stock-filter" class="toolbar-select">
+            <option value="">All Stock</option>
+            <option value="low">Low Stock (≤5)</option>
+            <option value="out">Out of Stock</option>
+          </select>
+        </div>
+        <button class="btn-primary" data-tab="add-product">+ Add Product</button>
+      </div>
+      <div id="products-grid" class="products-grid">
+        <div class="shimmer h-160"></div>
+      </div>
+    </section>
+
+    <!-- ══ CATEGORIES ══ -->
+    <section id="tab-categories" class="tab hidden">
+      <div class="tab-toolbar">
+        <div></div>
+        <button class="btn-primary" id="add-category-btn">+ New Category</button>
+      </div>
+      <div id="categories-grid" class="categories-grid">
+        <div class="shimmer h-160"></div>
+      </div>
+    </section>
+
+    <!-- ══ ORDERS ══ -->
+    <section id="tab-orders" class="tab hidden">
+      <div class="tab-toolbar">
+        <div class="toolbar-filters">
+          <input type="text" id="order-search" class="toolbar-input" placeholder="Search by name, email, ID…">
+          <select id="order-status-filter" class="toolbar-select">
+            <option value="">All Statuses</option>
+            <option value="pending">Pending</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="delivered">Delivered</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <button class="btn-secondary" id="export-orders-btn">↓ Export CSV</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>Customer</th>
+              <th>Items</th>
+              <th>Total</th>
+              <th>Status</th>
+              <th>Date</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="orders-tbody">
+            <tr><td colspan="7"><div class="shimmer h-48"></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ══ ADD PRODUCT ══ -->
+    <section id="tab-add-product" class="tab hidden">
+      <div class="form-card">
+        <div class="form-card-title" id="product-form-title">Add New Product</div>
+        <form id="product-form" enctype="multipart/form-data" novalidate>
+          <input type="hidden" id="product-id">
+          <div class="form-grid">
+            <div class="field col-2">
+              <label>Product Name <span class="req">*</span></label>
+              <input type="text" id="product-name" placeholder="e.g. Ultra Clean Spray" required>
+            </div>
+            <div class="field col-2">
+              <label>Description</label>
+              <textarea id="product-description" rows="3" placeholder="Short product description…"></textarea>
+            </div>
+            <div class="field">
+              <label>Price (EGP) <span class="req">*</span></label>
+              <input type="number" id="product-price" step="0.01" min="0" placeholder="0.00" required>
+            </div>
+            <div class="field">
+              <label>Stock <span class="req">*</span></label>
+              <input type="number" id="product-stock" min="0" placeholder="0" required>
+            </div>
+            <div class="field col-2">
+              <label>Category <span class="req">*</span></label>
+              <select id="product-category" required>
+                <option value="">Select category…</option>
+              </select>
+            </div>
+            <div class="field col-2">
+              <label>Product Image</label>
+              <div class="upload-zone" id="upload-zone">
+                <input type="file" id="product-image" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp">
+                <div class="upload-ph" id="upload-placeholder">
+                  <div class="upload-ph-icon">↑</div>
+                  <span>Drop image here or <u>browse</u></span>
+                  <small>JPG, PNG, WEBP · max 5 MB</small>
+                </div>
+                <div id="image-preview" class="img-preview hidden"></div>
+              </div>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn-primary" id="submit-product-btn">Add Product</button>
+            <button type="button" class="btn-ghost" id="reset-product-btn">Reset</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ════════════════════ MODALS ════════════════════ -->
+
+<!-- Edit Product -->
+<div id="edit-modal" class="overlay hidden" role="dialog" aria-modal="true">
+  <div class="modal">
+    <div class="modal-hd">
+      <h2>Edit Product</h2>
+      <button class="modal-x" id="close-edit-modal">✕</button>
+    </div>
+    <form id="edit-product-form" novalidate>
+      <input type="hidden" id="edit-product-id">
+      <div class="form-grid">
+        <div class="field col-2">
+          <label>Name</label>
+          <input type="text" id="edit-product-name" required>
+        </div>
+        <div class="field col-2">
+          <label>Description</label>
+          <textarea id="edit-product-description" rows="3"></textarea>
+        </div>
+        <div class="field">
+          <label>Price (EGP)</label>
+          <input type="number" id="edit-product-price" step="0.01" min="0" required>
+        </div>
+        <div class="field">
+          <label>Stock</label>
+          <input type="number" id="edit-product-stock" min="0" required>
+        </div>
+        <div class="field col-2">
+          <label>Category</label>
+          <select id="edit-product-category" required>
+            <option value="">Select category…</option>
+          </select>
+        </div>
+        <div class="field col-2">
+          <label>Image <span class="optional">(leave empty to keep current)</span></label>
+          <div class="upload-zone" id="edit-upload-zone">
+            <input type="file" id="edit-product-image" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp">
+            <div class="upload-ph" id="edit-upload-placeholder">
+              <div class="upload-ph-icon">↑</div>
+              <span>Drop new image or <u>browse</u></span>
+            </div>
+            <div id="edit-image-preview" class="img-preview hidden"></div>
+          </div>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn-primary">Update Product</button>
+        <button type="button" class="btn-ghost" id="cancel-edit-btn">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Category -->
+<div id="category-modal" class="overlay hidden" role="dialog" aria-modal="true">
+  <div class="modal modal-sm">
+    <div class="modal-hd">
+      <h2 id="category-modal-title">New Category</h2>
+      <button class="modal-x" id="close-category-modal">✕</button>
+    </div>
+    <form id="category-form">
+      <input type="hidden" id="category-id">
+      <div class="field">
+        <label>Name <span class="req">*</span></label>
+        <input type="text" id="category-name" placeholder="e.g. Floor Cleaners" required>
+      </div>
+      <div class="field">
+        <label>Description <span class="optional">(optional)</span></label>
+        <textarea id="category-description" rows="2" placeholder="Brief description…"></textarea>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn-primary" id="submit-category-btn">Save</button>
+        <button type="button" class="btn-ghost" id="cancel-category-btn">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Delete -->
+<div id="delete-modal" class="overlay hidden" role="dialog" aria-modal="true">
+  <div class="modal modal-sm">
+    <div class="modal-hd">
+      <h2>Confirm Delete</h2>
+      <button class="modal-x" id="close-delete-modal">✕</button>
+    </div>
+    <p class="delete-msg">This action is <strong>permanent</strong> and cannot be undone.</p>
+    <input type="hidden" id="delete-item-id">
+    <input type="hidden" id="delete-item-type">
+    <div class="form-actions">
+      <button id="confirm-delete-btn" class="btn-danger">Delete</button>
+      <button id="cancel-delete-btn" class="btn-ghost">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Update Status -->
+<div id="status-modal" class="overlay hidden" role="dialog" aria-modal="true">
+  <div class="modal modal-sm">
+    <div class="modal-hd">
+      <h2>Update Order Status</h2>
+      <button class="modal-x" id="close-status-modal">✕</button>
+    </div>
+    <form id="status-form">
+      <input type="hidden" id="status-order-id">
+      <div class="field">
+        <label>New Status</label>
+        <select id="order-status" required>
+          <option value="pending">⏳ Pending</option>
+          <option value="confirmed">✓ Confirmed</option>
+          <option value="delivered">✦ Delivered</option>
+          <option value="cancelled">✕ Cancelled</option>
+        </select>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn-primary">Update</button>
+        <button type="button" class="btn-ghost" id="cancel-status-btn">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- View Order -->
+<div id="view-modal" class="overlay hidden" role="dialog" aria-modal="true">
+  <div class="modal">
+    <div class="modal-hd">
+      <h2>Order Details</h2>
+      <button class="modal-x" id="close-view-modal">✕</button>
+    </div>
+    <div class="order-meta-grid">
+      <div class="ometa"><span class="ometa-l">Order ID</span><span class="ometa-v mono" id="view-order-id">—</span></div>
+      <div class="ometa"><span class="ometa-l">Status</span><span class="ometa-v" id="view-order-status">—</span></div>
+      <div class="ometa"><span class="ometa-l">Date</span><span class="ometa-v" id="view-order-date">—</span></div>
+      <div class="ometa"><span class="ometa-l">Total</span><span class="ometa-v" id="view-order-total">—</span></div>
+    </div>
+    <div class="order-section-title">Customer</div>
+    <div id="view-order-customer" style="font-size:13px;color:var(--t2);line-height:1.7;margin-bottom:12px;"></div>
+    <div class="order-section-title">Items</div>
+    <div id="view-order-items"></div>
+    <div class="form-actions" style="margin-top:16px;">
+      <button class="btn-primary" onclick="printInvoice()">🖨 Print Invoice</button>
+      <button class="btn-ghost" id="close-view-modal-btn">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container" aria-live="polite"></div>
+
+<script src="/admin.js"></script>
+</body>
+</html>
